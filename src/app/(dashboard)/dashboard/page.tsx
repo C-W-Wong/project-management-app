@@ -110,9 +110,9 @@ function priorityColor(priority: string) {
 
 export default function DashboardPage() {
   return (
-    <div className="space-y-6 p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       {/* Welcome Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold">Welcome back, Alex</h1>
           <p className="text-sm text-muted-foreground">
@@ -148,7 +148,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Main Content Grid */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_380px]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_340px] xl:grid-cols-[1fr_380px]">
         {/* Left Column - Projects Progress */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">

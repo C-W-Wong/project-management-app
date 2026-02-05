@@ -28,7 +28,7 @@ export default function ProjectDetailPage() {
   const [activeTab, setActiveTab] = useState("board");
 
   return (
-    <div className="flex flex-col gap-6 p-8">
+    <div className="flex flex-col gap-6 p-4 sm:p-6 lg:p-8">
       {/* Breadcrumbs */}
       <Breadcrumbs
         items={[
@@ -38,8 +38,8 @@ export default function ProjectDetailPage() {
       />
 
       {/* Project Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-semibold">{projectData.name}</h1>
           <Badge className="bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300">
             {projectData.status}
@@ -58,9 +58,9 @@ export default function ProjectDetailPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
+          <TabsList className="flex-wrap">
             <TabsTrigger value="board">Task Board</TabsTrigger>
             <TabsTrigger value="list">Task List</TabsTrigger>
             <TabsTrigger value="timeline">Timeline</TabsTrigger>

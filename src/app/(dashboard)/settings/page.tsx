@@ -21,7 +21,7 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("profile");
 
   return (
-    <div className="space-y-6 p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       <div>
         <h1 className="text-2xl font-semibold">Settings</h1>
         <p className="text-sm text-muted-foreground">
@@ -29,9 +29,9 @@ export default function SettingsPage() {
         </p>
       </div>
 
-      <div className="flex gap-8">
+      <div className="flex flex-col gap-6 sm:flex-row sm:gap-8">
         {/* Settings Sidebar */}
-        <nav className="w-48 space-y-1">
+        <nav className="flex gap-1 overflow-x-auto sm:w-48 sm:flex-col sm:space-y-1">
           {tabs.map((tab) => (
             <button
               key={tab.id}

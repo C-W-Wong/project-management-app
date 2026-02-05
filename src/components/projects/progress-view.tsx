@@ -71,7 +71,7 @@ export function ProgressView() {
             <Progress value={progressPercent} className="h-3 flex-1" />
             <span className="text-2xl font-bold">{progressPercent}%</span>
           </div>
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
             <div className="rounded-lg bg-muted p-3 text-center">
               <p className="text-2xl font-bold">{totalTasks}</p>
               <p className="text-xs text-muted-foreground">Total Tasks</p>

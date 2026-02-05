@@ -44,13 +44,13 @@ export function TimelineView() {
     <div className="space-y-4">
       {/* Week Navigation */}
       <div className="flex items-center gap-2">
-        <Button variant="outline" size="sm" onClick={() => setWeekOffset((p) => p - 1)}>
+        <Button variant="outline" size="sm" onClick={() => setWeekOffset((p) => p - 1)} aria-label="Previous week">
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <Button variant="outline" size="sm" onClick={() => setWeekOffset(0)}>
           This Week
         </Button>
-        <Button variant="outline" size="sm" onClick={() => setWeekOffset((p) => p + 1)}>
+        <Button variant="outline" size="sm" onClick={() => setWeekOffset((p) => p + 1)} aria-label="Next week">
           <ChevronRight className="h-4 w-4" />
         </Button>
         <span className="ml-2 text-sm text-muted-foreground">

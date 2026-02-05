@@ -65,13 +65,13 @@ const defaultTask = {
 function statusColor(status: string) {
   switch (status) {
     case "To Do":
-      return "bg-blue-100 text-blue-700";
+      return "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300";
     case "In Progress":
-      return "bg-orange-100 text-orange-700";
+      return "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300";
     case "Review":
-      return "bg-yellow-100 text-yellow-700";
+      return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300";
     case "Done":
-      return "bg-green-100 text-green-700";
+      return "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300";
     default:
       return "";
   }
@@ -80,13 +80,13 @@ function statusColor(status: string) {
 function priorityColor(priority: string) {
   switch (priority) {
     case "Urgent":
-      return "bg-red-100 text-red-700";
+      return "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300";
     case "High":
-      return "bg-orange-100 text-orange-700";
+      return "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-300";
     case "Medium":
-      return "bg-yellow-100 text-yellow-700";
+      return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-300";
     default:
-      return "bg-green-100 text-green-700";
+      return "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300";
   }
 }
 
@@ -116,15 +116,20 @@ export function TaskDetailModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="task-detail-title"
+    >
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative z-10 flex h-[600px] w-full max-w-3xl overflow-hidden rounded-lg border bg-background shadow-lg">
+      <div className="relative z-10 flex h-[90vh] max-h-[600px] w-full max-w-3xl flex-col overflow-hidden rounded-lg border bg-background shadow-lg md:flex-row">
         {/* Left Panel */}
-        <div className="flex flex-1 flex-col overflow-y-auto p-6">
+        <div className="flex flex-1 flex-col overflow-y-auto p-4 sm:p-6">
           {/* Header */}
           <div className="flex items-start justify-between">
             <div className="space-y-2">
-              <h2 className="text-xl font-semibold">{task.title}</h2>
+              <h2 id="task-detail-title" className="text-xl font-semibold">{task.title}</h2>
               <div className="flex items-center gap-2">
                 <Badge variant="secondary" className={statusColor(task.status)}>
                   {task.status}
@@ -134,7 +139,7 @@ export function TaskDetailModal({
                 </Badge>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={onClose}>
+            <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close task details">
               <X className="h-4 w-4" />
             </Button>
           </div>
@@ -187,7 +192,7 @@ export function TaskDetailModal({
                 value={newComment}
                 onChange={(e) => setNewComment(e.target.value)}
               />
-              <Button size="icon" onClick={handleAddComment}>
+              <Button size="icon" onClick={handleAddComment} aria-label="Send comment">
                 <Send className="h-4 w-4" />
               </Button>
             </div>
@@ -195,7 +200,7 @@ export function TaskDetailModal({
         </div>
 
         {/* Right Sidebar */}
-        <div className="w-64 border-l bg-muted/30 p-6 space-y-6">
+        <div className="w-full border-t bg-muted/30 p-4 sm:p-6 md:w-64 md:border-l md:border-t-0 overflow-y-auto space-y-6">
           <div>
             <span className="text-xs font-medium text-muted-foreground">
               Assignee

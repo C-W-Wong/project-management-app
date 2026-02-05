@@ -97,9 +97,9 @@ export default function ProjectsListPage() {
       : projects.filter((p) => p.status === statusFilter);
 
   return (
-    <div className="space-y-6 p-8">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">All Projects</h1>
           <p className="text-sm text-muted-foreground">
@@ -108,7 +108,7 @@ export default function ProjectsListPage() {
         </div>
         <div className="flex items-center gap-3">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[150px]">
+            <SelectTrigger className="w-[150px]" aria-label="Filter by status">
               <Filter className="mr-2 h-4 w-4" />
               <SelectValue placeholder="Filter" />
             </SelectTrigger>
@@ -128,7 +128,7 @@ export default function ProjectsListPage() {
       </div>
 
       {/* Table */}
-      <div className="rounded-md border">
+      <div className="overflow-x-auto rounded-md border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -191,7 +191,7 @@ export default function ProjectsListPage() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Button variant="ghost" size="icon" className="h-8 w-8">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Project settings">
                     <Settings className="h-4 w-4" />
                   </Button>
                 </TableCell>

@@ -78,8 +78,8 @@ export default function MyTasksPage() {
   }
 
   return (
-    <div className="space-y-6 p-8">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold">My Tasks</h1>
           <p className="text-sm text-muted-foreground">
@@ -88,7 +88,7 @@ export default function MyTasksPage() {
         </div>
         <div className="flex items-center gap-2">
           <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[130px]">
+            <SelectTrigger className="w-[130px]" aria-label="Filter by status">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
             <SelectContent>
@@ -100,7 +100,7 @@ export default function MyTasksPage() {
             </SelectContent>
           </Select>
           <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="w-[130px]">
+            <SelectTrigger className="w-[130px]" aria-label="Filter by priority">
               <SelectValue placeholder="Priority" />
             </SelectTrigger>
             <SelectContent>
@@ -124,7 +124,7 @@ export default function MyTasksPage() {
           </p>
         </div>
       ) : (
-        <div className="rounded-md border">
+        <div className="overflow-x-auto rounded-md border">
           <Table>
             <TableHeader>
               <TableRow>

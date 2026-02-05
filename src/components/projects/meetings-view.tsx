@@ -59,7 +59,7 @@ export function MeetingsView() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-lg font-semibold">Project Meetings</h3>
         <Button>
           <Plus className="mr-2 h-4 w-4" />
@@ -71,7 +71,7 @@ export function MeetingsView() {
       <div className="space-y-0 rounded-lg border">
         {meetings.map((meeting, i) => (
           <div key={meeting.id}>
-            <div className="flex items-center gap-4 p-4">
+            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4">
               {/* Time */}
               <div className="w-20 text-center">
                 <p className="text-sm font-medium">{meeting.time}</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Upload, Search, FileText, Image, FileSpreadsheet, FileCode } from "lucide-react";
+import { Upload, Search, FileText, Image as ImageIcon, FileSpreadsheet, FileCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -31,7 +31,7 @@ function getFileIcon(type: string) {
       return <FileText className="h-8 w-8 text-red-500" />;
     case "png":
     case "jpg":
-      return <Image className="h-8 w-8 text-blue-500" />;
+      return <ImageIcon className="h-8 w-8 text-blue-500" />;
     case "xlsx":
       return <FileSpreadsheet className="h-8 w-8 text-green-500" />;
     case "json":
@@ -51,16 +51,17 @@ export function DocumentsView() {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-lg font-semibold">Project Documents</h3>
         <div className="flex items-center gap-3">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search documents..."
-              className="pl-9 w-[250px]"
+              className="pl-9 w-full sm:w-[250px]"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search documents"
             />
           </div>
           <Button>
