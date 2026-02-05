@@ -11,6 +11,7 @@ import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { KanbanBoard } from "@/components/projects/kanban-board";
 import { TaskList } from "@/components/projects/task-list";
 import { TimelineView } from "@/components/projects/timeline-view";
+import { DocumentsView } from "@/components/projects/documents-view";
 
 const projectData = {
   id: "1",
@@ -82,9 +83,7 @@ export default function ProjectDetailPage() {
       {activeTab === "board" && <KanbanBoard />}
       {activeTab === "list" && <TaskList />}
       {activeTab === "timeline" && <TimelineView />}
-      {activeTab === "documents" && (
-        <p className="text-muted-foreground">Documents view coming soon...</p>
-      )}
+      {activeTab === "documents" && <DocumentsView />}
       {activeTab === "meetings" && (
         <p className="text-muted-foreground">Meetings view coming soon...</p>
       )}
