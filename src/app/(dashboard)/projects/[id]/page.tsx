@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Breadcrumbs } from "@/components/layout/breadcrumbs";
 import { KanbanBoard } from "@/components/projects/kanban-board";
 import { TaskList } from "@/components/projects/task-list";
+import { TimelineView } from "@/components/projects/timeline-view";
 
 const projectData = {
   id: "1",
@@ -80,9 +81,7 @@ export default function ProjectDetailPage() {
       {/* Tab Content */}
       {activeTab === "board" && <KanbanBoard />}
       {activeTab === "list" && <TaskList />}
-      {activeTab === "timeline" && (
-        <p className="text-muted-foreground">Timeline view coming soon...</p>
-      )}
+      {activeTab === "timeline" && <TimelineView />}
       {activeTab === "documents" && (
         <p className="text-muted-foreground">Documents view coming soon...</p>
       )}
