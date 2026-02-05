@@ -12,6 +12,7 @@ import { KanbanBoard } from "@/components/projects/kanban-board";
 import { TaskList } from "@/components/projects/task-list";
 import { TimelineView } from "@/components/projects/timeline-view";
 import { DocumentsView } from "@/components/projects/documents-view";
+import { MeetingsView } from "@/components/projects/meetings-view";
 
 const projectData = {
   id: "1",
@@ -84,9 +85,7 @@ export default function ProjectDetailPage() {
       {activeTab === "list" && <TaskList />}
       {activeTab === "timeline" && <TimelineView />}
       {activeTab === "documents" && <DocumentsView />}
-      {activeTab === "meetings" && (
-        <p className="text-muted-foreground">Meetings view coming soon...</p>
-      )}
+      {activeTab === "meetings" && <MeetingsView />}
       {activeTab === "progress" && (
         <p className="text-muted-foreground">Progress view coming soon...</p>
       )}
