@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { createClient } from "@/lib/supabase/client";
+import { createTask, updateTask } from "@/lib/mutations";
+import { getAllProfiles } from "@/lib/queries";
+import { getErrorMessage } from "@/lib/formatters";
+import type { Profile } from "@/types/database";
 
 const taskSchema = z.object({
   title: z.string().min(1, "Task title is required"),
@@ -36,6 +42,8 @@ type TaskFormData = z.infer<typeof taskSchema>;
 interface CreateTaskModalProps {
   open: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
+  projectId?: string;
   task?: {
     id: string;
     title: string;
@@ -47,9 +55,17 @@ interface CreateTaskModalProps {
   };
 }
 
-export function CreateTaskModal({ open, onClose, task }: CreateTaskModalProps) {
+export function CreateTaskModal({
+  open,
+  onClose,
+  onSuccess,
+  projectId,
+  task,
+}: CreateTaskModalProps) {
   const isEdit = !!task;
   const [loading, setLoading] = useState(false);
+  const [assignees, setAssignees] = useState<Profile[]>([]);
+  const supabase = createClient();
 
   const {
     register,
@@ -73,12 +89,55 @@ export function CreateTaskModal({ open, onClose, task }: CreateTaskModalProps) {
         },
   });
 
+  useEffect(() => {
+    let active = true;
+    async function loadAssignees() {
+      try {
+        const profiles = await getAllProfiles(supabase);
+        if (active) setAssignees(profiles);
+      } catch (error) {
+        toast.error(getErrorMessage(error, "Failed to load assignees"));
+      }
+    }
+    if (open) loadAssignees();
+    return () => {
+      active = false;
+    };
+  }, [open, supabase]);
+
   async function onSubmit(data: TaskFormData) {
     setLoading(true);
-    // TODO: Save to Supabase
-    console.log(isEdit ? "Updating task:" : "Creating task:", data);
-    setLoading(false);
-    onClose();
+    try {
+      if (isEdit && task) {
+        await updateTask(supabase, task.id, {
+          title: data.title,
+          description: data.description ?? null,
+          status: data.status as "To Do" | "In Progress" | "Review" | "Done",
+          priority: data.priority as "Low" | "Medium" | "High" | "Urgent",
+          assignee_id: data.assignee || null,
+          due_date: data.dueDate ?? null,
+        });
+        toast.success("Task updated");
+      } else {
+        if (!projectId) throw new Error("Project is required");
+        await createTask(supabase, {
+          title: data.title,
+          description: data.description ?? null,
+          status: data.status as "To Do" | "In Progress" | "Review" | "Done",
+          priority: data.priority as "Low" | "Medium" | "High" | "Urgent",
+          project_id: projectId,
+          assignee_id: data.assignee || null,
+          due_date: data.dueDate ?? null,
+        });
+        toast.success("Task created");
+      }
+      onSuccess?.();
+      onClose();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to save task"));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -147,14 +206,25 @@ export function CreateTaskModal({ open, onClose, task }: CreateTaskModalProps) {
 
           <div className="space-y-2">
             <Label>Assignee</Label>
-            <Select onValueChange={(v) => setValue("assignee", v)}>
+            <Select
+              defaultValue={task?.assignee}
+              onValueChange={(v) => setValue("assignee", v)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select assignee" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="user1">Alex Smith</SelectItem>
-                <SelectItem value="user2">Jane Kim</SelectItem>
-                <SelectItem value="user3">Mark Lee</SelectItem>
+                {assignees.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    No team members
+                  </SelectItem>
+                ) : (
+                  assignees.map((profile) => (
+                    <SelectItem key={profile.id} value={profile.id}>
+                      {profile.full_name}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
           </div>

@@ -1,20 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X, Calendar, Tag, Send } from "lucide-react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Separator } from "@/components/ui/separator";
-
-interface Comment {
-  id: string;
-  author: string;
-  avatar: string;
-  content: string;
-  timestamp: string;
-}
+import { createClient } from "@/lib/supabase/client";
+import { getCommentsByTask, getProfilesByIds } from "@/lib/queries";
+import { createComment } from "@/lib/mutations";
+import { formatRelativeDate, getErrorMessage, getInitials } from "@/lib/formatters";
+import type { Comment, Profile } from "@/types/database";
 
 interface TaskDetailModalProps {
   open: boolean;
@@ -31,36 +29,6 @@ interface TaskDetailModalProps {
     tags: string[];
   };
 }
-
-const mockComments: Comment[] = [
-  {
-    id: "c1",
-    author: "Alex Smith",
-    avatar: "AS",
-    content: "I've started working on the wireframes. Should have the first draft ready by tomorrow.",
-    timestamp: "2 hours ago",
-  },
-  {
-    id: "c2",
-    author: "Jane Kim",
-    avatar: "JK",
-    content: "Looks great! Can you also add the mobile viewport versions?",
-    timestamp: "1 hour ago",
-  },
-];
-
-const defaultTask = {
-  id: "t1",
-  title: "Design homepage mockup",
-  description:
-    "Create wireframes and visual design for the homepage. Include desktop and mobile versions with all interactive states. Follow the brand guidelines document for colors and typography.",
-  status: "In Progress",
-  priority: "High",
-  assignee: "AS",
-  dueDate: "Feb 10, 2026",
-  project: "Website Redesign",
-  tags: ["Frontend", "Design"],
-};
 
 function statusColor(status: string) {
   switch (status) {
@@ -93,26 +61,63 @@ function priorityColor(priority: string) {
 export function TaskDetailModal({
   open,
   onClose,
-  task = defaultTask,
+  task,
 }: TaskDetailModalProps) {
   const [newComment, setNewComment] = useState("");
-  const [comments, setComments] = useState(mockComments);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [profiles, setProfiles] = useState<Record<string, Profile>>({});
+  const [loading, setLoading] = useState(true);
+  const supabase = useMemo(() => createClient(), []);
+
+  useEffect(() => {
+    if (!open || !task?.id) {
+      setComments([]);
+      setProfiles({});
+      setNewComment("");
+      setLoading(false);
+      return;
+    }
+    let active = true;
+    async function loadComments() {
+      setLoading(true);
+      try {
+        const data = await getCommentsByTask(supabase, task.id);
+        const authorIds = Array.from(new Set(data.map((c) => c.author_id)));
+        const authors = await getProfilesByIds(supabase, authorIds);
+        const map = authors.reduce<Record<string, Profile>>((acc, p) => {
+          acc[p.id] = p;
+          return acc;
+        }, {});
+        if (active) {
+          setComments(data);
+          setProfiles(map);
+        }
+      } catch (err) {
+        toast.error(getErrorMessage(err, "Failed to load comments"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadComments();
+    return () => {
+      active = false;
+    };
+  }, [open, supabase, task?.id]);
 
   if (!open) return null;
 
-  function handleAddComment() {
-    if (!newComment.trim()) return;
-    setComments((prev) => [
-      ...prev,
-      {
-        id: `c${Date.now()}`,
-        author: "You",
-        avatar: "YO",
-        content: newComment,
-        timestamp: "Just now",
-      },
-    ]);
-    setNewComment("");
+  async function handleAddComment() {
+    if (!newComment.trim() || !task?.id) return;
+    try {
+      const created = await createComment(supabase, {
+        task_id: task.id,
+        content: newComment.trim(),
+      });
+      setComments((prev) => [...prev, created]);
+      setNewComment("");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to add comment"));
+    }
   }
 
   return (
@@ -129,14 +134,23 @@ export function TaskDetailModal({
           {/* Header */}
           <div className="flex items-start justify-between">
             <div className="space-y-2">
-              <h2 id="task-detail-title" className="text-xl font-semibold">{task.title}</h2>
+              <h2 id="task-detail-title" className="text-xl font-semibold">
+                {task?.title ?? "Task"}
+              </h2>
               <div className="flex items-center gap-2">
-                <Badge variant="secondary" className={statusColor(task.status)}>
-                  {task.status}
-                </Badge>
-                <Badge variant="secondary" className={priorityColor(task.priority)}>
-                  {task.priority}
-                </Badge>
+                {task?.status && (
+                  <Badge variant="secondary" className={statusColor(task.status)}>
+                    {task.status}
+                  </Badge>
+                )}
+                {task?.priority && (
+                  <Badge
+                    variant="secondary"
+                    className={priorityColor(task.priority)}
+                  >
+                    {task.priority}
+                  </Badge>
+                )}
               </div>
             </div>
             <Button variant="ghost" size="icon" onClick={onClose} aria-label="Close task details">
@@ -149,7 +163,9 @@ export function TaskDetailModal({
           {/* Description */}
           <div className="space-y-2">
             <h3 className="text-sm font-medium">Description</h3>
-            <p className="text-sm text-muted-foreground">{task.description}</p>
+            <p className="text-sm text-muted-foreground">
+              {task?.description ?? "No description provided."}
+            </p>
           </div>
 
           <Separator className="my-4" />
@@ -160,28 +176,40 @@ export function TaskDetailModal({
               Comments ({comments.length})
             </h3>
             <div className="flex-1 space-y-4">
-              {comments.map((comment) => (
-                <div key={comment.id} className="flex gap-3">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback className="text-xs">
-                      {comment.avatar}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">
-                        {comment.author}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {comment.timestamp}
-                      </span>
+              {loading ? (
+                <p className="text-sm text-muted-foreground">Loading comments...</p>
+              ) : comments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No comments yet.</p>
+              ) : (
+                comments.map((comment) => {
+                  const author = profiles[comment.author_id];
+                  return (
+                    <div key={comment.id} className="flex gap-3">
+                      <Avatar className="h-8 w-8">
+                        {author?.avatar_url && (
+                          <AvatarImage src={author.avatar_url} />
+                        )}
+                        <AvatarFallback className="text-xs">
+                          {getInitials(author?.full_name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-medium">
+                            {author?.full_name ?? "Team member"}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {formatRelativeDate(comment.created_at)}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {comment.content}
+                        </p>
+                      </div>
                     </div>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {comment.content}
-                    </p>
-                  </div>
-                </div>
-              ))}
+                  );
+                })
+              )}
             </div>
 
             {/* Add Comment */}
@@ -208,10 +236,10 @@ export function TaskDetailModal({
             <div className="mt-2 flex items-center gap-2">
               <Avatar className="h-6 w-6">
                 <AvatarFallback className="text-[10px]">
-                  {task.assignee}
+                  {getInitials(task?.assignee)}
                 </AvatarFallback>
               </Avatar>
-              <span className="text-sm">Alex Smith</span>
+              <span className="text-sm">{task?.assignee ?? "Unassigned"}</span>
             </div>
           </div>
 
@@ -221,7 +249,7 @@ export function TaskDetailModal({
             </span>
             <div className="mt-2 flex items-center gap-2 text-sm">
               <Calendar className="h-4 w-4 text-muted-foreground" />
-              {task.dueDate}
+              {task?.dueDate ?? "—"}
             </div>
           </div>
 
@@ -229,7 +257,7 @@ export function TaskDetailModal({
             <span className="text-xs font-medium text-muted-foreground">
               Project
             </span>
-            <p className="mt-2 text-sm">{task.project}</p>
+            <p className="mt-2 text-sm">{task?.project ?? "—"}</p>
           </div>
 
           <div>
@@ -237,12 +265,16 @@ export function TaskDetailModal({
               Tags
             </span>
             <div className="mt-2 flex flex-wrap gap-1">
-              {task.tags.map((tag) => (
-                <Badge key={tag} variant="outline" className="text-xs">
-                  <Tag className="mr-1 h-3 w-3" />
-                  {tag}
-                </Badge>
-              ))}
+              {task?.tags?.length ? (
+                task.tags.map((tag) => (
+                  <Badge key={tag} variant="outline" className="text-xs">
+                    <Tag className="mr-1 h-3 w-3" />
+                    {tag}
+                  </Badge>
+                ))
+              ) : (
+                <span className="text-sm text-muted-foreground">—</span>
+              )}
             </div>
           </div>
         </div>

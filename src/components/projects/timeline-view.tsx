@@ -1,31 +1,67 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-
-interface TimelineTask {
-  id: string;
-  title: string;
-  startDay: number;
-  endDay: number;
-  color: string;
-  category: string;
-}
-
-const tasks: TimelineTask[] = [
-  { id: "1", title: "Design homepage mockup", startDay: 0, endDay: 3, color: "bg-blue-400", category: "Design" },
-  { id: "2", title: "Set up authentication", startDay: 1, endDay: 4, color: "bg-orange-400", category: "Development" },
-  { id: "3", title: "Create API endpoints", startDay: 2, endDay: 6, color: "bg-green-400", category: "Development" },
-  { id: "4", title: "Database schema design", startDay: 0, endDay: 2, color: "bg-purple-400", category: "Architecture" },
-  { id: "5", title: "Landing page copy", startDay: 3, endDay: 5, color: "bg-yellow-400", category: "Content" },
-  { id: "6", title: "Logo design", startDay: 4, endDay: 6, color: "bg-pink-400", category: "Design" },
-];
+import { createClient } from "@/lib/supabase/client";
+import { getTasksByProject } from "@/lib/queries";
+import { formatDate, getErrorMessage } from "@/lib/formatters";
+import type { TaskWithAssignee } from "@/lib/queries/tasks";
+import { TaskDetailModal } from "@/components/projects/task-detail-modal";
 
 const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function TimelineView() {
+interface TimelineViewProps {
+  projectId: string;
+  projectName?: string | null;
+  refreshKey?: number;
+  statusFilter?: "all" | "To Do" | "In Progress" | "Review" | "Done";
+}
+
+export function TimelineView({
+  projectId,
+  projectName,
+  refreshKey = 0,
+  statusFilter = "all",
+}: TimelineViewProps) {
   const [weekOffset, setWeekOffset] = useState(0);
+  const [tasks, setTasks] = useState<TaskWithAssignee[]>([]);
+  const [selectedTask, setSelectedTask] = useState<{
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    priority: string;
+    assignee: string;
+    dueDate: string;
+    project: string;
+    tags: string[];
+  } | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const supabase = useMemo(() => createClient(), []);
+
+  useEffect(() => {
+    let active = true;
+    async function loadTasks() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getTasksByProject(supabase, projectId);
+        if (!active) return;
+        setTasks(data);
+      } catch (err) {
+        if (active) setError(getErrorMessage(err, "Failed to load timeline"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadTasks();
+    return () => {
+      active = false;
+    };
+  }, [projectId, refreshKey, supabase]);
 
   const startDate = new Date();
   startDate.setDate(startDate.getDate() - startDate.getDay() + 1 + weekOffset * 7);
@@ -39,6 +75,28 @@ export function TimelineView() {
       month: d.toLocaleString("default", { month: "short" }),
     };
   });
+
+  const filteredTasks =
+    statusFilter === "all"
+      ? tasks
+      : tasks.filter((task) => task.status === statusFilter);
+
+  const visibleTasks = filteredTasks.filter((task) => task.due_date);
+
+  function openTaskDetail(task: TaskWithAssignee) {
+    setSelectedTask({
+      id: task.id,
+      title: task.title,
+      description: task.description ?? "",
+      status: task.status,
+      priority: task.priority,
+      assignee: task.assignee?.full_name ?? "Unassigned",
+      dueDate: task.due_date ? formatDate(task.due_date) : "—",
+      project: projectName ?? "Project",
+      tags: [],
+    });
+    setDetailOpen(true);
+  }
 
   return (
     <div className="space-y-4">
@@ -73,28 +131,73 @@ export function TimelineView() {
           </div>
 
           {/* Task Rows */}
-          {tasks.map((task) => (
-            <div key={task.id} className="grid grid-cols-[200px_repeat(7,1fr)] border-b last:border-0">
-              <div className="flex items-center p-3">
-                <span className="truncate text-sm">{task.title}</span>
-              </div>
-              <div className="relative col-span-7 flex items-center">
+          {loading ? (
+            <div className="p-4 text-sm text-muted-foreground">Loading timeline...</div>
+          ) : error ? (
+            <div className="p-4 text-sm text-destructive">{error}</div>
+          ) : visibleTasks.length === 0 ? (
+            <div className="p-4 text-sm text-muted-foreground">No tasks scheduled.</div>
+          ) : (
+            visibleTasks.map((task, index) => {
+              const due = new Date(task.due_date as string);
+              const dayIndex = (due.getDay() + 6) % 7;
+              const color = timelineColors[index % timelineColors.length];
+              return (
                 <div
-                  className={`absolute h-6 rounded ${task.color} opacity-80`}
-                  style={{
-                    left: `${(task.startDay / 7) * 100}%`,
-                    width: `${((task.endDay - task.startDay + 1) / 7) * 100}%`,
+                  key={task.id}
+                  className="grid grid-cols-[200px_repeat(7,1fr)] border-b last:border-0 cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openTaskDetail(task)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openTaskDetail(task);
+                    }
                   }}
-                />
-                {/* Grid lines */}
-                {[0, 1, 2, 3, 4, 5, 6].map((i) => (
-                  <div key={i} className="h-full flex-1 border-l" />
-                ))}
-              </div>
-            </div>
-          ))}
+                >
+                  <div className="flex items-center p-3">
+                    <span className="truncate text-sm">{task.title}</span>
+                    <span className="ml-2 text-xs text-muted-foreground">
+                      {task.status}
+                    </span>
+                  </div>
+                  <div className="relative col-span-7 flex items-center">
+                    <div
+                      className={`absolute h-6 rounded ${color} opacity-80`}
+                      style={{
+                        left: `${(dayIndex / 7) * 100}%`,
+                        width: `${(1 / 7) * 100}%`,
+                      }}
+                    />
+                    {/* Grid lines */}
+                    {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+                      <div key={i} className="h-full flex-1 border-l" />
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </div>
+      <TaskDetailModal
+        open={detailOpen}
+        onClose={() => {
+          setDetailOpen(false);
+          setSelectedTask(null);
+        }}
+        task={selectedTask ?? undefined}
+      />
     </div>
   );
 }
+
+const timelineColors = [
+  "bg-blue-400",
+  "bg-orange-400",
+  "bg-green-400",
+  "bg-purple-400",
+  "bg-yellow-400",
+  "bg-pink-400",
+];

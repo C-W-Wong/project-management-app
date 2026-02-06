@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -21,6 +23,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { createClient } from "@/lib/supabase/client";
+import { createMeeting } from "@/lib/mutations";
+import { getAllProfiles, getProjects } from "@/lib/queries";
+import { getErrorMessage } from "@/lib/formatters";
+import type { Profile, Project } from "@/types/database";
 
 const meetingSchema = z.object({
   title: z.string().min(1, "Meeting title is required"),
@@ -28,6 +35,7 @@ const meetingSchema = z.object({
   time: z.string().min(1, "Time is required"),
   duration: z.string(),
   project: z.string().optional(),
+  attendees: z.array(z.string()).optional(),
   description: z.string().optional(),
 });
 
@@ -36,32 +44,92 @@ type MeetingFormData = z.infer<typeof meetingSchema>;
 interface ScheduleMeetingModalProps {
   open: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
+  projectId?: string;
 }
 
 export function ScheduleMeetingModal({
   open,
   onClose,
+  onSuccess,
+  projectId,
 }: ScheduleMeetingModalProps) {
   const [loading, setLoading] = useState(false);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const supabase = createClient();
 
   const {
     register,
     handleSubmit,
     setValue,
+    getValues,
     formState: { errors },
   } = useForm<MeetingFormData>({
     resolver: zodResolver(meetingSchema),
     defaultValues: {
       duration: "1h",
+      project: projectId,
+      attendees: [],
     },
   });
 
+  useEffect(() => {
+    let active = true;
+    async function loadOptions() {
+      try {
+        const [profilesData, projectsData] = await Promise.all([
+          getAllProfiles(supabase),
+          getProjects(supabase),
+        ]);
+        if (!active) return;
+        setProfiles(profilesData);
+        setProjects(projectsData);
+      } catch (error) {
+        toast.error(getErrorMessage(error, "Failed to load meeting options"));
+      }
+    }
+    if (open) loadOptions();
+    return () => {
+      active = false;
+    };
+  }, [open, supabase]);
+
+  function durationToInterval(value: string) {
+    switch (value) {
+      case "30m":
+        return "30 minutes";
+      case "45m":
+        return "45 minutes";
+      case "1.5h":
+        return "90 minutes";
+      case "2h":
+        return "2 hours";
+      default:
+        return "1 hour";
+    }
+  }
+
   async function onSubmit(data: MeetingFormData) {
     setLoading(true);
-    // TODO: Save to Supabase
-    console.log("Scheduling meeting:", data);
-    setLoading(false);
-    onClose();
+    try {
+      await createMeeting(supabase, {
+        title: data.title,
+        description: data.description ?? null,
+        date: data.date,
+        time: data.time,
+        duration: durationToInterval(data.duration),
+        project_id: data.project ?? projectId ?? null,
+        attendee_ids: data.attendees ?? [],
+      });
+      toast.success("Meeting scheduled");
+      onSuccess?.();
+      onClose();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to schedule meeting"));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -123,17 +191,59 @@ export function ScheduleMeetingModal({
 
             <div className="space-y-2">
               <Label>Project (optional)</Label>
-              <Select onValueChange={(v) => setValue("project", v)}>
+              <Select
+                defaultValue={projectId}
+                onValueChange={(v) => setValue("project", v)}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select project" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">Website Redesign</SelectItem>
-                  <SelectItem value="2">Mobile App</SelectItem>
-                  <SelectItem value="3">Marketing Campaign</SelectItem>
-                  <SelectItem value="4">API Integration</SelectItem>
+                  {projects.length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      No projects available
+                    </SelectItem>
+                  ) : (
+                    projects.map((project) => (
+                      <SelectItem key={project.id} value={project.id}>
+                        {project.name}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Attendees</Label>
+            <div className="max-h-40 space-y-2 overflow-y-auto rounded-md border p-3">
+              {profiles.length === 0 ? (
+                <p className="text-xs text-muted-foreground">
+                  No team members found
+                </p>
+              ) : (
+                profiles.map((profile) => (
+                  <label
+                    key={profile.id}
+                    className="flex items-center gap-2 text-sm"
+                  >
+                    <Checkbox
+                      onCheckedChange={(checked) => {
+                        setValue(
+                          "attendees",
+                          checked
+                            ? [...(getValues("attendees") ?? []), profile.id]
+                            : (getValues("attendees") ?? []).filter(
+                                (id) => id !== profile.id
+                              )
+                        );
+                      }}
+                    />
+                    {profile.full_name}
+                  </label>
+                ))
+              )}
             </div>
           </div>
 

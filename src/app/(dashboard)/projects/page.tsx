@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Filter, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import {
   Table,
@@ -22,45 +22,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-const projects = [
-  {
-    id: "1",
-    name: "Website Redesign",
-    description: "Redesigning the company website with modern UI",
-    status: "In Progress" as const,
-    progress: 75,
-    dueDate: "Mar 15, 2026",
-    team: ["AS", "JK", "ML"],
-  },
-  {
-    id: "2",
-    name: "Mobile App Development",
-    description: "Building cross-platform mobile application",
-    status: "In Progress" as const,
-    progress: 45,
-    dueDate: "Apr 30, 2026",
-    team: ["RD", "TW"],
-  },
-  {
-    id: "3",
-    name: "Marketing Campaign",
-    description: "Q1 digital marketing strategy and execution",
-    status: "Review" as const,
-    progress: 90,
-    dueDate: "Feb 28, 2026",
-    team: ["SK", "LP", "MN"],
-  },
-  {
-    id: "4",
-    name: "API Integration",
-    description: "Third-party API integration for payment processing",
-    status: "Planning" as const,
-    progress: 30,
-    dueDate: "May 20, 2026",
-    team: ["JD", "AK", "RS", "BT"],
-  },
-];
+import { ClientOnly } from "@/components/ui/client-only";
+import { CreateProjectModal } from "@/components/modals/create-project-modal";
+import { createClient } from "@/lib/supabase/client";
+import { getProjectsWithMembers } from "@/lib/queries";
+import { formatDate, getErrorMessage, getInitials } from "@/lib/formatters";
+import type { ProjectSummary } from "@/lib/queries/projects";
 
 function statusVariant(status: string) {
   switch (status) {
@@ -90,6 +57,34 @@ function statusColor(status: string) {
 
 export default function ProjectsListPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const supabase = useMemo(() => createClient(), []);
+
+  useEffect(() => {
+    let active = true;
+    async function loadProjects() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getProjectsWithMembers(supabase);
+        if (active) setProjects(data);
+      } catch (err) {
+        if (active) setError(getErrorMessage(err, "Failed to load projects"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+
+    loadProjects();
+    return () => {
+      active = false;
+    };
+  }, [supabase, refreshKey]);
 
   const filtered =
     statusFilter === "all"
@@ -107,25 +102,40 @@ export default function ProjectsListPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[150px]" aria-label="Filter by status">
-              <Filter className="mr-2 h-4 w-4" />
-              <SelectValue placeholder="Filter" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="Planning">Planning</SelectItem>
-              <SelectItem value="In Progress">In Progress</SelectItem>
-              <SelectItem value="Review">Review</SelectItem>
-              <SelectItem value="Completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button>
+          <ClientOnly
+            fallback={<div className="h-9 w-[150px] rounded-md border bg-muted/30" />}
+          >
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[150px]" aria-label="Filter by status">
+                <Filter className="mr-2 h-4 w-4" />
+                <SelectValue placeholder="Filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="Planning">Planning</SelectItem>
+                <SelectItem value="In Progress">In Progress</SelectItem>
+                <SelectItem value="Review">Review</SelectItem>
+                <SelectItem value="Completed">Completed</SelectItem>
+              </SelectContent>
+            </Select>
+          </ClientOnly>
+          <Button
+            onClick={() => {
+              setSelectedProject(null);
+              setModalOpen(true);
+            }}
+          >
             <Plus className="mr-2 h-4 w-4" />
             New Project
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
 
       {/* Table */}
       <div className="overflow-x-auto rounded-md border">
@@ -141,65 +151,108 @@ export default function ProjectsListPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filtered.map((project) => (
-              <TableRow key={project.id} className="cursor-pointer">
-                <TableCell>
-                  <Link
-                    href={`/projects/${project.id}`}
-                    className="block"
-                  >
-                    <div className="font-medium">{project.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {project.description}
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                  Loading projects...
+                </TableCell>
+              </TableRow>
+            ) : filtered.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">
+                  No projects found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              filtered.map((project) => (
+                <TableRow key={project.id} className="cursor-pointer">
+                  <TableCell>
+                    <Link
+                      href={`/projects/${project.id}`}
+                      className="block"
+                    >
+                      <div className="font-medium">{project.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {project.description}
+                      </div>
+                    </Link>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={statusVariant(project.status)}
+                      className={statusColor(project.status)}
+                    >
+                      {project.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <Progress
+                        value={project.progress}
+                        className="h-2 w-24"
+                      />
+                      <span className="text-sm text-muted-foreground">
+                        {project.progress}%
+                      </span>
                     </div>
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  <Badge
-                    variant={statusVariant(project.status)}
-                    className={statusColor(project.status)}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {project.due_date ? formatDate(project.due_date) : "--"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex -space-x-2">
+                      {project.members.slice(0, 4).map((member) => (
+                        <Avatar
+                          key={member.id}
+                          className="h-7 w-7 border-2 border-background"
+                        >
+                          {member.avatar_url && (
+                            <AvatarImage src={member.avatar_url} />
+                          )}
+                          <AvatarFallback className="text-[10px]">
+                            {getInitials(member.full_name)}
+                          </AvatarFallback>
+                        </Avatar>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label="Project settings"
+                    onClick={() => {
+                      setSelectedProject(project);
+                      setModalOpen(true);
+                    }}
                   >
-                    {project.status}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <Progress
-                      value={project.progress}
-                      className="h-2 w-24"
-                    />
-                    <span className="text-sm text-muted-foreground">
-                      {project.progress}%
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {project.dueDate}
-                </TableCell>
-                <TableCell>
-                  <div className="flex -space-x-2">
-                    {project.team.map((member) => (
-                      <Avatar
-                        key={member}
-                        className="h-7 w-7 border-2 border-background"
-                      >
-                        <AvatarFallback className="text-[10px]">
-                          {member}
-                        </AvatarFallback>
-                      </Avatar>
-                    ))}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="Project settings">
                     <Settings className="h-4 w-4" />
                   </Button>
                 </TableCell>
               </TableRow>
-            ))}
+            ))
+            )}
           </TableBody>
         </Table>
       </div>
+
+      <CreateProjectModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSuccess={() => setRefreshKey((prev) => prev + 1)}
+        project={
+          selectedProject
+            ? {
+                id: selectedProject.id,
+                name: selectedProject.name,
+                description: selectedProject.description ?? "",
+                status: selectedProject.status,
+                dueDate: selectedProject.due_date ?? "",
+              }
+            : undefined
+        }
+      />
     </div>
   );
 }

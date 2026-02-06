@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -8,11 +9,22 @@ import {
   CheckSquare,
   Calendar,
   Users,
+  Bell,
+  MessageCircle,
   Settings,
   ChevronsUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { createClient } from "@/lib/supabase/client";
+import {
+  getCurrentProfile,
+  getCurrentUserId,
+  getUnreadMessageCount,
+  getUnreadNotificationCount,
+} from "@/lib/queries";
+import { getErrorMessage, getInitials } from "@/lib/formatters";
+import type { Profile } from "@/types/database";
 
 const mainNavItems = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
@@ -23,6 +35,8 @@ const mainNavItems = [
 
 const teamNavItems = [
   { label: "Team Members", href: "/team", icon: Users },
+  { label: "Messages", href: "/messages", icon: MessageCircle },
+  { label: "Notifications", href: "/notifications", icon: Bell },
   { label: "Settings", href: "/settings", icon: Settings },
 ];
 
@@ -32,6 +46,96 @@ interface SidebarProps {
 
 export function Sidebar({ className }: SidebarProps) {
   const pathname = usePathname();
+  const supabase = useMemo(() => createClient(), []);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [unreadMessages, setUnreadMessages] = useState(0);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [countsLoaded, setCountsLoaded] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadProfile() {
+      try {
+        const data = await getCurrentProfile(supabase);
+        if (active) setProfile(data);
+      } catch (err) {
+        console.warn(getErrorMessage(err, "Failed to load profile"));
+      }
+    }
+    loadProfile();
+    return () => {
+      active = false;
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    let active = true;
+    let interval: ReturnType<typeof setInterval> | null = null;
+    async function loadCounts() {
+      try {
+        const resolvedUserId = await getCurrentUserId(supabase);
+        if (!resolvedUserId) return;
+        setUserId(resolvedUserId);
+        const [msgCount, notifCount] = await Promise.all([
+          getUnreadMessageCount(supabase, resolvedUserId),
+          getUnreadNotificationCount(supabase),
+        ]);
+        if (active) {
+          setUnreadMessages(msgCount);
+          setUnreadNotifications(notifCount);
+          setCountsLoaded(true);
+        }
+      } catch (err) {
+        console.warn(getErrorMessage(err, "Failed to load counts"));
+      }
+    }
+    loadCounts();
+    interval = setInterval(loadCounts, 30000);
+    return () => {
+      active = false;
+      if (interval) clearInterval(interval);
+    };
+  }, [supabase]);
+
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabase
+      .channel(`sidebar-counts-${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "messages",
+          filter: `recipient_id=eq.${userId}`,
+        },
+        () => {
+          getUnreadMessageCount(supabase, userId)
+            .then(setUnreadMessages)
+            .catch(() => null);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "notifications",
+          filter: `user_id=eq.${userId}`,
+        },
+        () => {
+          getUnreadNotificationCount(supabase)
+            .then(setUnreadNotifications)
+            .catch(() => null);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [supabase, userId]);
 
   return (
     <aside
@@ -97,6 +201,16 @@ export function Sidebar({ className }: SidebarProps) {
             >
               <item.icon className="h-4 w-4" />
               {item.label}
+              {item.href === "/messages" && countsLoaded && unreadMessages > 0 && (
+                <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[10px] text-primary-foreground">
+                  {unreadMessages}
+                </span>
+              )}
+              {item.href === "/notifications" && countsLoaded && unreadNotifications > 0 && (
+                <span className="ml-auto rounded-full bg-primary px-2 py-0.5 text-[10px] text-primary-foreground">
+                  {unreadNotifications}
+                </span>
+              )}
             </Link>
           );
         })}
@@ -106,14 +220,17 @@ export function Sidebar({ className }: SidebarProps) {
       <div className="flex items-center justify-between rounded-md bg-sidebar p-2">
         <div className="flex items-center gap-2">
           <Avatar className="h-8 w-8">
-            <AvatarFallback className="text-xs">JD</AvatarFallback>
+            {profile?.avatar_url && <AvatarImage src={profile.avatar_url} />}
+            <AvatarFallback className="text-xs">
+              {getInitials(profile?.full_name)}
+            </AvatarFallback>
           </Avatar>
           <div className="flex flex-col">
             <span className="text-sm font-medium text-sidebar-foreground">
-              John Doe
+              {profile?.full_name ?? "Loading..."}
             </span>
             <span className="text-xs text-muted-foreground">
-              Project Manager
+              {profile?.role ?? "Team member"}
             </span>
           </div>
         </div>

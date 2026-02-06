@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { createClient } from "@/lib/supabase/client";
+import { createProject, updateProject } from "@/lib/mutations";
+import { getErrorMessage } from "@/lib/formatters";
 
 const projectSchema = z.object({
   name: z.string().min(1, "Project name is required"),
@@ -34,6 +38,7 @@ type ProjectFormData = z.infer<typeof projectSchema>;
 interface CreateProjectModalProps {
   open: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
   project?: {
     id: string;
     name: string;
@@ -46,10 +51,12 @@ interface CreateProjectModalProps {
 export function CreateProjectModal({
   open,
   onClose,
+  onSuccess,
   project,
 }: CreateProjectModalProps) {
   const isEdit = !!project;
   const [loading, setLoading] = useState(false);
+  const supabase = createClient();
 
   const {
     register,
@@ -72,10 +79,31 @@ export function CreateProjectModal({
 
   async function onSubmit(data: ProjectFormData) {
     setLoading(true);
-    // TODO: Save to Supabase
-    console.log(isEdit ? "Updating project:" : "Creating project:", data);
-    setLoading(false);
-    onClose();
+    try {
+      if (isEdit && project) {
+        await updateProject(supabase, project.id, {
+          name: data.name,
+          description: data.description ?? null,
+          status: data.status as "Planning" | "In Progress" | "Review" | "Completed",
+          due_date: data.dueDate ?? null,
+        });
+        toast.success("Project updated");
+      } else {
+        await createProject(supabase, {
+          name: data.name,
+          description: data.description ?? null,
+          status: data.status as "Planning" | "In Progress" | "Review" | "Completed",
+          due_date: data.dueDate ?? null,
+        });
+        toast.success("Project created");
+      }
+      onSuccess?.();
+      onClose();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to save project"));
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (

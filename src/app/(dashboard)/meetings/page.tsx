@@ -1,29 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-
-const meetingsByDate: Record<
-  string,
-  { id: string; title: string; description: string; time: string; attendees: string[] }[]
-> = {
-  "2026-02-05": [
-    { id: "1", title: "Design Review", description: "Review homepage mockups", time: "10:00 AM", attendees: ["AS", "JK", "ML"] },
-    { id: "2", title: "Sprint Planning", description: "Plan next sprint tasks", time: "2:00 PM", attendees: ["RD", "TW", "SK"] },
-    { id: "3", title: "Client Call", description: "Weekly progress update", time: "4:30 PM", attendees: ["AS", "ML"] },
-  ],
-  "2026-02-06": [
-    { id: "4", title: "Team Standup", description: "Daily status update", time: "9:00 AM", attendees: ["AS", "JK", "ML", "RD"] },
-  ],
-  "2026-02-10": [
-    { id: "5", title: "Product Demo", description: "Demo new features to stakeholders", time: "11:00 AM", attendees: ["AS", "TW"] },
-  ],
-};
+import { ScheduleMeetingModal } from "@/components/modals/schedule-meeting-modal";
+import { createClient } from "@/lib/supabase/client";
+import { getMeetings } from "@/lib/queries";
+import { formatTime, getErrorMessage, getInitials } from "@/lib/formatters";
+import type { MeetingWithAttendees } from "@/lib/queries/meetings";
 
 const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const monthNames = [
@@ -46,6 +34,12 @@ export default function MeetingsPage() {
   const [selectedDate, setSelectedDate] = useState(
     today.toISOString().split("T")[0]
   );
+  const [meetings, setMeetings] = useState<MeetingWithAttendees[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const supabase = useMemo(() => createClient(), []);
 
   const daysInMonth = getDaysInMonth(currentYear, currentMonth);
   const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
@@ -74,7 +68,41 @@ export default function MeetingsPage() {
     setSelectedDate(today.toISOString().split("T")[0]);
   }
 
+  const meetingsByDate = meetings.reduce<Record<string, MeetingWithAttendees[]>>(
+    (acc, meeting) => {
+      const key = meeting.date;
+      if (!acc[key]) acc[key] = [];
+      acc[key].push(meeting);
+      return acc;
+    },
+    {}
+  );
+
   const selectedMeetings = meetingsByDate[selectedDate] ?? [];
+
+  useEffect(() => {
+    let active = true;
+    async function loadMeetings() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getMeetings(supabase);
+        if (active) setMeetings(data);
+      } catch (err) {
+        if (active) setError(getErrorMessage(err, "Failed to load meetings"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadMeetings();
+    return () => {
+      active = false;
+    };
+  }, [supabase, refreshKey]);
+
+  function handleMeetingScheduled() {
+    setRefreshKey((prev) => prev + 1);
+  }
 
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
@@ -86,11 +114,17 @@ export default function MeetingsPage() {
             Schedule and manage your team meetings
           </p>
         </div>
-        <Button>
+        <Button onClick={() => setScheduleOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Schedule Meeting
         </Button>
       </div>
+
+      {error && (
+        <div className="rounded-md border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_340px] xl:grid-cols-[1fr_380px]">
         {/* Calendar */}
@@ -164,7 +198,11 @@ export default function MeetingsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {selectedMeetings.length === 0 ? (
+            {loading ? (
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                Loading meetings...
+              </p>
+            ) : selectedMeetings.length === 0 ? (
               <p className="py-8 text-center text-sm text-muted-foreground">
                 No meetings scheduled for this day
               </p>
@@ -175,25 +213,30 @@ export default function MeetingsPage() {
                     <div className="flex items-center gap-3 py-3">
                       <div className="flex-1">
                         <p className="text-sm font-medium">{meeting.title}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {meeting.description}
-                        </p>
+                        {meeting.description && (
+                          <p className="text-xs text-muted-foreground">
+                            {meeting.description}
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex -space-x-2">
-                          {meeting.attendees.map((a) => (
+                          {meeting.attendees.slice(0, 4).map((attendee) => (
                             <Avatar
-                              key={a}
+                              key={attendee.id}
                               className="h-6 w-6 border-2 border-background"
                             >
+                              {attendee.avatar_url && (
+                                <AvatarImage src={attendee.avatar_url} />
+                              )}
                               <AvatarFallback className="text-[10px]">
-                                {a}
+                                {getInitials(attendee.full_name)}
                               </AvatarFallback>
                             </Avatar>
                           ))}
                         </div>
                         <span className="text-xs text-muted-foreground">
-                          {meeting.time}
+                          {formatTime(meeting.time)}
                         </span>
                       </div>
                     </div>
@@ -205,6 +248,12 @@ export default function MeetingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <ScheduleMeetingModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        onSuccess={handleMeetingScheduled}
+      />
     </div>
   );
 }

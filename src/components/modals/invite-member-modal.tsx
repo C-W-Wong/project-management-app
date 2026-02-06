@@ -5,6 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { CheckCircle } from "lucide-react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { createClient } from "@/lib/supabase/client";
+import { getErrorMessage } from "@/lib/formatters";
 
 const inviteSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -32,11 +35,17 @@ type InviteFormData = z.infer<typeof inviteSchema>;
 interface InviteMemberModalProps {
   open: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
 }
 
-export function InviteMemberModal({ open, onClose }: InviteMemberModalProps) {
+export function InviteMemberModal({
+  open,
+  onClose,
+  onSuccess,
+}: InviteMemberModalProps) {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const supabase = createClient();
 
   const {
     register,
@@ -50,11 +59,22 @@ export function InviteMemberModal({ open, onClose }: InviteMemberModalProps) {
 
   async function onSubmit(data: InviteFormData) {
     setLoading(true);
-    // TODO: Send invite via Supabase
-    console.log("Inviting member:", data);
-    await new Promise((r) => setTimeout(r, 500));
-    setLoading(false);
-    setSuccess(true);
+    try {
+      const { error } = await supabase.auth.signInWithOtp({
+        email: data.email,
+        options: {
+          shouldCreateUser: true,
+        },
+      });
+      if (error) throw error;
+      toast.success("Invitation email sent");
+      setSuccess(true);
+      onSuccess?.();
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to send invite"));
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleClose() {

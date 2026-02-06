@@ -1,11 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowUpDown, Filter } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -21,25 +19,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-
-interface MyTask {
-  id: string;
-  title: string;
-  project: string;
-  status: string;
-  priority: string;
-  dueDate: string;
-  completed: boolean;
-}
-
-const myTasks: MyTask[] = [
-  { id: "1", title: "Design homepage mockup", project: "Website Redesign", status: "To Do", priority: "High", dueDate: "Feb 10", completed: false },
-  { id: "2", title: "Set up authentication", project: "Mobile App", status: "In Progress", priority: "Urgent", dueDate: "Feb 8", completed: false },
-  { id: "3", title: "Create API endpoints", project: "Website Redesign", status: "In Progress", priority: "High", dueDate: "Feb 12", completed: false },
-  { id: "4", title: "Write landing page copy", project: "Marketing Campaign", status: "Review", priority: "Medium", dueDate: "Feb 9", completed: false },
-  { id: "5", title: "Design database schema", project: "API Integration", status: "Done", priority: "Medium", dueDate: "Feb 5", completed: true },
-  { id: "6", title: "Fix login bug", project: "Mobile App", status: "To Do", priority: "Urgent", dueDate: "Feb 7", completed: false },
-];
+import { ClientOnly } from "@/components/ui/client-only";
+import { createClient } from "@/lib/supabase/client";
+import { getProjects, getTasksForUser } from "@/lib/queries";
+import { updateTaskStatus } from "@/lib/mutations";
+import { formatDate, formatDateShort, getErrorMessage } from "@/lib/formatters";
+import type { TaskWithAssignee } from "@/lib/queries/tasks";
+import { TaskDetailModal } from "@/components/projects/task-detail-modal";
 
 function statusColor(status: string) {
   switch (status) {
@@ -61,9 +47,58 @@ function priorityColor(priority: string) {
 }
 
 export default function MyTasksPage() {
-  const [tasks, setTasks] = useState(myTasks);
+  const supabase = useMemo(() => createClient(), []);
+  const [tasks, setTasks] = useState<TaskWithAssignee[]>([]);
+  const [projectNames, setProjectNames] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("all");
   const [priorityFilter, setPriorityFilter] = useState("all");
+  const [selectedTask, setSelectedTask] = useState<{
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    priority: string;
+    assignee: string;
+    dueDate: string;
+    project: string;
+    tags: string[];
+  } | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function loadTasks() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [tasksData, projectsData] = await Promise.all([
+          getTasksForUser(supabase),
+          getProjects(supabase),
+        ]);
+        const nameMap = projectsData.reduce<Record<string, string>>(
+          (acc, project) => {
+            acc[project.id] = project.name;
+            return acc;
+          },
+          {}
+        );
+        if (active) {
+          setProjectNames(nameMap);
+          setTasks(tasksData);
+        }
+      } catch (err) {
+        if (active) setError(getErrorMessage(err, "Failed to load tasks"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadTasks();
+    return () => {
+      active = false;
+    };
+  }, [supabase]);
 
   const filtered = tasks.filter((t) => {
     if (statusFilter !== "all" && t.status !== statusFilter) return false;
@@ -71,10 +106,32 @@ export default function MyTasksPage() {
     return true;
   });
 
-  function toggleComplete(id: string) {
+  async function toggleComplete(id: string, checked: boolean) {
     setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, completed: !t.completed } : t))
+      prev.map((t) =>
+        t.id === id ? { ...t, status: checked ? "Done" : "To Do" } : t
+      )
     );
+    try {
+      await updateTaskStatus(supabase, id, checked ? "Done" : "To Do");
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to update task"));
+    }
+  }
+
+  function openTaskDetail(task: TaskWithAssignee) {
+    setSelectedTask({
+      id: task.id,
+      title: task.title,
+      description: task.description ?? "",
+      status: task.status,
+      priority: task.priority,
+      assignee: task.assignee?.full_name ?? "Unassigned",
+      dueDate: task.due_date ? formatDate(task.due_date) : "—",
+      project: projectNames[task.project_id] ?? "Project",
+      tags: [],
+    });
+    setDetailOpen(true);
   }
 
   return (
@@ -87,34 +144,55 @@ export default function MyTasksPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-[130px]" aria-label="Filter by status">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Status</SelectItem>
-              <SelectItem value="To Do">To Do</SelectItem>
-              <SelectItem value="In Progress">In Progress</SelectItem>
-              <SelectItem value="Review">Review</SelectItem>
-              <SelectItem value="Done">Done</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
-            <SelectTrigger className="w-[130px]" aria-label="Filter by priority">
-              <SelectValue placeholder="Priority" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Priority</SelectItem>
-              <SelectItem value="Urgent">Urgent</SelectItem>
-              <SelectItem value="High">High</SelectItem>
-              <SelectItem value="Medium">Medium</SelectItem>
-              <SelectItem value="Low">Low</SelectItem>
-            </SelectContent>
-          </Select>
+          <ClientOnly
+            fallback={
+              <>
+                <div className="h-9 w-[130px] rounded-md border bg-muted/30" />
+                <div className="h-9 w-[130px] rounded-md border bg-muted/30" />
+              </>
+            }
+          >
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-[130px]" aria-label="Filter by status">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="To Do">To Do</SelectItem>
+                <SelectItem value="In Progress">In Progress</SelectItem>
+                <SelectItem value="Review">Review</SelectItem>
+                <SelectItem value="Done">Done</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+              <SelectTrigger className="w-[130px]" aria-label="Filter by priority">
+                <SelectValue placeholder="Priority" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Priority</SelectItem>
+                <SelectItem value="Urgent">Urgent</SelectItem>
+                <SelectItem value="High">High</SelectItem>
+                <SelectItem value="Medium">Medium</SelectItem>
+                <SelectItem value="Low">Low</SelectItem>
+              </SelectContent>
+            </Select>
+          </ClientOnly>
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {error && (
+        <div className="rounded-md border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <p className="text-lg font-medium text-muted-foreground">
+            Loading tasks...
+          </p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <p className="text-lg font-medium text-muted-foreground">
             No tasks found
@@ -138,16 +216,31 @@ export default function MyTasksPage() {
             </TableHeader>
             <TableBody>
               {filtered.map((task) => (
-                <TableRow key={task.id} className="cursor-pointer">
+                <TableRow
+                  key={task.id}
+                  className="cursor-pointer"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openTaskDetail(task)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openTaskDetail(task);
+                    }
+                  }}
+                >
                   <TableCell>
                     <Checkbox
-                      checked={task.completed}
-                      onCheckedChange={() => toggleComplete(task.id)}
+                      checked={task.status === "Done"}
+                      onCheckedChange={(checked) =>
+                        toggleComplete(task.id, Boolean(checked))
+                      }
+                      onClick={(event) => event.stopPropagation()}
                     />
                   </TableCell>
                   <TableCell className="font-medium">{task.title}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {task.project}
+                    {projectNames[task.project_id] ?? "Project"}
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary" className={statusColor(task.status)}>
@@ -160,7 +253,7 @@ export default function MyTasksPage() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {task.dueDate}
+                    {task.due_date ? formatDateShort(task.due_date) : "--"}
                   </TableCell>
                 </TableRow>
               ))}
@@ -168,6 +261,14 @@ export default function MyTasksPage() {
           </Table>
         </div>
       )}
+      <TaskDetailModal
+        open={detailOpen}
+        onClose={() => {
+          setDetailOpen(false);
+          setSelectedTask(null);
+        }}
+        task={selectedTask ?? undefined}
+      />
     </div>
   );
 }

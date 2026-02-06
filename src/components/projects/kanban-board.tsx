@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DragDropContext,
   Droppable,
@@ -8,84 +8,17 @@ import {
   type DropResult,
 } from "@hello-pangea/dnd";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Calendar, Tag } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { getTasksByProject } from "@/lib/queries";
+import { updateTaskStatus } from "@/lib/mutations";
+import { formatDate, formatDateShort, getErrorMessage, getInitials } from "@/lib/formatters";
+import type { TaskWithAssignee } from "@/lib/queries/tasks";
+import { toast } from "sonner";
+import { TaskDetailModal } from "@/components/projects/task-detail-modal";
 
 type TaskStatus = "To Do" | "In Progress" | "Review" | "Done";
-
-interface KanbanTask {
-  id: string;
-  title: string;
-  description: string;
-  status: TaskStatus;
-  priority: string;
-  dueDate: string;
-  assignee: string;
-  tags: number;
-}
-
-const initialTasks: KanbanTask[] = [
-  {
-    id: "t1",
-    title: "Design homepage mockup",
-    description: "Create wireframes and visual design for the homepage",
-    status: "To Do",
-    priority: "High",
-    dueDate: "Feb 10",
-    assignee: "AS",
-    tags: 2,
-  },
-  {
-    id: "t2",
-    title: "Set up authentication",
-    description: "Implement login and signup with Supabase",
-    status: "To Do",
-    priority: "Urgent",
-    dueDate: "Feb 8",
-    assignee: "JK",
-    tags: 1,
-  },
-  {
-    id: "t3",
-    title: "Create API endpoints",
-    description: "Build REST API for project management",
-    status: "In Progress",
-    priority: "High",
-    dueDate: "Feb 12",
-    assignee: "ML",
-    tags: 3,
-  },
-  {
-    id: "t4",
-    title: "Database schema design",
-    description: "Design and implement database tables",
-    status: "In Progress",
-    priority: "Medium",
-    dueDate: "Feb 11",
-    assignee: "RD",
-    tags: 1,
-  },
-  {
-    id: "t5",
-    title: "Landing page copy",
-    description: "Write marketing copy for the landing page",
-    status: "Review",
-    priority: "Low",
-    dueDate: "Feb 9",
-    assignee: "TW",
-    tags: 2,
-  },
-  {
-    id: "t6",
-    title: "Logo design",
-    description: "Create brand logo and icon variations",
-    status: "Done",
-    priority: "Medium",
-    dueDate: "Feb 5",
-    assignee: "SK",
-    tags: 1,
-  },
-];
 
 const columns: { id: TaskStatus; title: string }[] = [
   { id: "To Do", title: "To Do" },
@@ -107,10 +40,59 @@ function priorityColor(priority: string) {
   }
 }
 
-export function KanbanBoard() {
-  const [tasks, setTasks] = useState(initialTasks);
+interface KanbanBoardProps {
+  projectId: string;
+  projectName?: string | null;
+  refreshKey?: number;
+  statusFilter?: TaskStatus | "all";
+  onTaskUpdated?: () => void;
+}
 
-  function onDragEnd(result: DropResult) {
+export function KanbanBoard({
+  projectId,
+  projectName,
+  refreshKey = 0,
+  statusFilter = "all",
+  onTaskUpdated,
+}: KanbanBoardProps) {
+  const supabase = useMemo(() => createClient(), []);
+  const [tasks, setTasks] = useState<TaskWithAssignee[]>([]);
+  const [selectedTask, setSelectedTask] = useState<{
+    id: string;
+    title: string;
+    description: string;
+    status: string;
+    priority: string;
+    assignee: string;
+    dueDate: string;
+    project: string;
+    tags: string[];
+  } | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    async function loadTasks() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getTasksByProject(supabase, projectId);
+        if (active) setTasks(data);
+      } catch (err) {
+        if (active) setError(getErrorMessage(err, "Failed to load tasks"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadTasks();
+    return () => {
+      active = false;
+    };
+  }, [projectId, refreshKey, supabase]);
+
+  async function onDragEnd(result: DropResult) {
     if (!result.destination) return;
 
     const taskId = result.draggableId;
@@ -121,13 +103,46 @@ export function KanbanBoard() {
         task.id === taskId ? { ...task, status: newStatus } : task
       )
     );
+    try {
+      await updateTaskStatus(supabase, taskId, newStatus, result.destination.index);
+      onTaskUpdated?.();
+    } catch (err) {
+      toast.error(getErrorMessage(err, "Failed to update task"));
+      // Re-fetch to restore accurate state
+      setLoading(true);
+      try {
+        const data = await getTasksByProject(supabase, projectId);
+        setTasks(data);
+      } finally {
+        setLoading(false);
+      }
+    }
+  }
+
+  function openTaskDetail(task: TaskWithAssignee) {
+    setSelectedTask({
+      id: task.id,
+      title: task.title,
+      description: task.description ?? "",
+      status: task.status,
+      priority: task.priority,
+      assignee: task.assignee?.full_name ?? "Unassigned",
+      dueDate: task.due_date ? formatDate(task.due_date) : "—",
+      project: projectName ?? "Project",
+      tags: [],
+    });
+    setDetailOpen(true);
   }
 
   return (
     <DragDropContext onDragEnd={onDragEnd}>
       <div className="flex gap-4 overflow-x-auto pb-4">
         {columns.map((column) => {
-          const columnTasks = tasks.filter((t) => t.status === column.id);
+          const visibleTasks =
+            statusFilter === "all"
+              ? tasks
+              : tasks.filter((t) => t.status === statusFilter);
+          const columnTasks = visibleTasks.filter((t) => t.status === column.id);
           return (
             <div
               key={column.id}
@@ -151,60 +166,83 @@ export function KanbanBoard() {
                     {...provided.droppableProps}
                     className="flex min-h-[200px] flex-col gap-2 px-2 pb-2"
                   >
-                    {columnTasks.map((task, index) => (
-                      <Draggable
-                        key={task.id}
-                        draggableId={task.id}
-                        index={index}
-                      >
-                        {(provided) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className="cursor-grab rounded-lg border bg-card p-3 shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing"
-                          >
-                            <div className="space-y-2">
-                              <h4 className="text-sm font-medium">
-                                {task.title}
-                              </h4>
-                              <p className="text-xs text-muted-foreground line-clamp-2">
-                                {task.description}
-                              </p>
-                              <div className="flex items-center justify-between pt-1">
-                                <div className="flex items-center gap-2">
-                                  <Badge
-                                    variant="secondary"
-                                    className={`text-[10px] ${priorityColor(
-                                      task.priority
-                                    )}`}
-                                  >
-                                    {task.priority}
-                                  </Badge>
-                                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                    <Calendar className="h-3 w-3" />
-                                    {task.dueDate}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  {task.tags > 0 && (
-                                    <span className="flex items-center gap-0.5 text-xs text-muted-foreground">
-                                      <Tag className="h-3 w-3" />
-                                      {task.tags}
-                                    </span>
-                                  )}
-                                  <Avatar className="h-6 w-6">
-                                    <AvatarFallback className="text-[10px]">
-                                      {task.assignee}
-                                    </AvatarFallback>
-                                  </Avatar>
+                    {loading ? (
+                      <div className="p-3 text-sm text-muted-foreground">
+                        Loading tasks...
+                      </div>
+                    ) : error ? (
+                      <div className="p-3 text-sm text-destructive">{error}</div>
+                    ) : columnTasks.length === 0 ? (
+                      <div className="p-3 text-sm text-muted-foreground">
+                        No tasks
+                      </div>
+                    ) : (
+                      columnTasks.map((task, index) => (
+                        <Draggable
+                          key={task.id}
+                          draggableId={task.id}
+                          index={index}
+                        >
+                          {(provided) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              className="cursor-grab rounded-lg border bg-card p-3 shadow-sm transition-shadow hover:shadow-md active:cursor-grabbing"
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => openTaskDetail(task)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                  event.preventDefault();
+                                  openTaskDetail(task);
+                                }
+                              }}
+                            >
+                              <div className="space-y-2">
+                                <h4 className="text-sm font-medium">
+                                  {task.title}
+                                </h4>
+                                {task.description && (
+                                  <p className="text-xs text-muted-foreground line-clamp-2">
+                                    {task.description}
+                                  </p>
+                                )}
+                                <div className="flex items-center justify-between pt-1">
+                                  <div className="flex items-center gap-2">
+                                    <Badge
+                                      variant="secondary"
+                                      className={`text-[10px] ${priorityColor(
+                                        task.priority
+                                      )}`}
+                                    >
+                                      {task.priority}
+                                    </Badge>
+                                    {task.due_date && (
+                                      <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                        <Calendar className="h-3 w-3" />
+                                        {formatDateShort(task.due_date)}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                    <Tag className="h-3 w-3 text-muted-foreground" />
+                                    <Avatar className="h-6 w-6">
+                                      {task.assignee?.avatar_url && (
+                                        <AvatarImage src={task.assignee.avatar_url} />
+                                      )}
+                                      <AvatarFallback className="text-[10px]">
+                                        {getInitials(task.assignee?.full_name)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  </div>
                                 </div>
                               </div>
                             </div>
-                          </div>
-                        )}
-                      </Draggable>
-                    ))}
+                          )}
+                        </Draggable>
+                      ))
+                    )}
                     {provided.placeholder}
                   </div>
                 )}
@@ -213,6 +251,14 @@ export function KanbanBoard() {
           );
         })}
       </div>
+      <TaskDetailModal
+        open={detailOpen}
+        onClose={() => {
+          setDetailOpen(false);
+          setSelectedTask(null);
+        }}
+        task={selectedTask ?? undefined}
+      />
     </DragDropContext>
   );
 }

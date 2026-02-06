@@ -1,29 +1,17 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Mail, User } from "lucide-react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
-interface TeamMember {
-  id: string;
-  name: string;
-  initials: string;
-  role: string;
-  department: string;
-  email: string;
-  phone: string;
-  color: string;
-}
-
-const teamMembers: TeamMember[] = [
-  { id: "1", name: "Alex Smith", initials: "AS", role: "Project Manager", department: "Management", email: "alex@company.com", phone: "+1 234 567 890", color: "bg-blue-500" },
-  { id: "2", name: "Jane Kim", initials: "JK", role: "UI/UX Designer", department: "Design Team", email: "jane@company.com", phone: "+1 234 567 891", color: "bg-purple-500" },
-  { id: "3", name: "Mark Lee", initials: "ML", role: "Frontend Developer", department: "Engineering", email: "mark@company.com", phone: "+1 234 567 892", color: "bg-green-500" },
-  { id: "4", name: "Rachel Davis", initials: "RD", role: "Backend Developer", department: "Engineering", email: "rachel@company.com", phone: "+1 234 567 893", color: "bg-orange-500" },
-  { id: "5", name: "Tom Wilson", initials: "TW", role: "QA Engineer", department: "Quality", email: "tom@company.com", phone: "+1 234 567 894", color: "bg-red-500" },
-  { id: "6", name: "Sarah King", initials: "SK", role: "Product Designer", department: "Design Team", email: "sarah@company.com", phone: "+1 234 567 895", color: "bg-pink-500" },
-];
+import { InviteMemberModal } from "@/components/modals/invite-member-modal";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { createClient } from "@/lib/supabase/client";
+import { getAllProfiles } from "@/lib/queries";
+import { getErrorMessage, getInitials } from "@/lib/formatters";
+import type { Profile } from "@/types/database";
 
 function departmentColor(dept: string) {
   switch (dept) {
@@ -36,6 +24,32 @@ function departmentColor(dept: string) {
 }
 
 export default function TeamMembersPage() {
+  const supabase = useMemo(() => createClient(), []);
+  const [teamMembers, setTeamMembers] = useState<Profile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function loadTeam() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getAllProfiles(supabase);
+        if (active) setTeamMembers(data);
+      } catch (err) {
+        if (active) setError(getErrorMessage(err, "Failed to load team"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadTeam();
+    return () => {
+      active = false;
+    };
+  }, [supabase]);
+
   return (
     <div className="space-y-6 p-4 sm:p-6 lg:p-8">
       {/* Header */}
@@ -46,7 +60,7 @@ export default function TeamMembersPage() {
             Manage your team and invite new members
           </p>
         </div>
-        <Button>
+        <Button onClick={() => setInviteOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Invite Member
         </Button>
@@ -54,47 +68,73 @@ export default function TeamMembersPage() {
 
       {/* Member Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {teamMembers.map((member) => (
-          <Card key={member.id}>
-            <CardContent className="p-6">
-              <div className="flex flex-col items-center text-center">
-                {/* Avatar */}
-                <div
-                  className={`flex h-16 w-16 items-center justify-center rounded-full ${member.color} text-white text-lg font-semibold`}
-                >
-                  {member.initials}
+        {loading ? (
+          <div className="col-span-full text-sm text-muted-foreground">
+            Loading team members...
+          </div>
+        ) : error ? (
+          <div className="col-span-full text-sm text-destructive">{error}</div>
+        ) : teamMembers.length === 0 ? (
+          <div className="col-span-full text-sm text-muted-foreground">
+            No team members found.
+          </div>
+        ) : (
+          teamMembers.map((member) => (
+            <Card key={member.id}>
+              <CardContent className="p-6">
+                <div className="flex flex-col items-center text-center">
+                  {/* Avatar */}
+                  <Avatar className="h-16 w-16">
+                    {member.avatar_url && (
+                      <AvatarImage src={member.avatar_url} />
+                    )}
+                    <AvatarFallback className="text-lg">
+                      {getInitials(member.full_name)}
+                    </AvatarFallback>
+                  </Avatar>
+
+                  <h3 className="mt-4 text-sm font-semibold">{member.full_name}</h3>
+                  <p className="text-xs text-muted-foreground">{member.role ?? "Team member"}</p>
+
+                  {member.department && (
+                    <Badge
+                      variant="secondary"
+                      className={`mt-2 ${departmentColor(member.department)}`}
+                    >
+                      {member.department}
+                    </Badge>
+                  )}
+
+                  <div className="mt-4 space-y-1 text-xs text-muted-foreground">
+                    <p>{member.email}</p>
+                    {member.phone && <p>{member.phone}</p>}
+                  </div>
+
+                  <div className="mt-4 flex gap-2">
+                    <Button variant="outline" size="sm" asChild>
+                      <Link href={`/messages/${member.id}`}>
+                        <Mail className="mr-1 h-3 w-3" />
+                        Message
+                      </Link>
+                    </Button>
+                    <Button variant="outline" size="sm" asChild>
+                      <Link href={`/team/${member.id}`}>
+                        <User className="mr-1 h-3 w-3" />
+                        Profile
+                      </Link>
+                    </Button>
+                  </div>
                 </div>
-
-                <h3 className="mt-4 text-sm font-semibold">{member.name}</h3>
-                <p className="text-xs text-muted-foreground">{member.role}</p>
-
-                <Badge
-                  variant="secondary"
-                  className={`mt-2 ${departmentColor(member.department)}`}
-                >
-                  {member.department}
-                </Badge>
-
-                <div className="mt-4 space-y-1 text-xs text-muted-foreground">
-                  <p>{member.email}</p>
-                  <p>{member.phone}</p>
-                </div>
-
-                <div className="mt-4 flex gap-2">
-                  <Button variant="outline" size="sm">
-                    <Mail className="mr-1 h-3 w-3" />
-                    Message
-                  </Button>
-                  <Button variant="outline" size="sm">
-                    <User className="mr-1 h-3 w-3" />
-                    Profile
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          ))
+        )}
       </div>
+
+      <InviteMemberModal
+        open={inviteOpen}
+        onClose={() => setInviteOpen(false)}
+      />
     </div>
   );
 }

@@ -1,67 +1,64 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { createClient } from "@/lib/supabase/client";
+import { getMeetingsByProject } from "@/lib/queries";
+import { formatDate, formatTime, getErrorMessage, getInitials } from "@/lib/formatters";
+import type { MeetingWithAttendees } from "@/lib/queries/meetings";
+import { ScheduleMeetingModal } from "@/components/modals/schedule-meeting-modal";
 
-interface MeetingItem {
-  id: string;
-  title: string;
-  description: string;
-  date: string;
-  time: string;
-  duration: string;
-  attendees: string[];
+interface MeetingsViewProps {
+  projectId: string;
+  refreshKey?: number;
+  onMeetingScheduled?: () => void;
 }
 
-const meetings: MeetingItem[] = [
-  {
-    id: "m1",
-    title: "Design Review Meeting",
-    description: "Review the latest design iterations for the homepage",
-    date: "Feb 6, 2026",
-    time: "10:00 AM",
-    duration: "1h",
-    attendees: ["AS", "JK", "ML"],
-  },
-  {
-    id: "m2",
-    title: "Sprint Planning",
-    description: "Plan tasks and priorities for the upcoming sprint",
-    date: "Feb 6, 2026",
-    time: "2:00 PM",
-    duration: "1.5h",
-    attendees: ["RD", "TW", "SK", "AS"],
-  },
-  {
-    id: "m3",
-    title: "Client Feedback Session",
-    description: "Present progress and gather client feedback on deliverables",
-    date: "Feb 7, 2026",
-    time: "11:00 AM",
-    duration: "45m",
-    attendees: ["AS", "ML"],
-  },
-  {
-    id: "m4",
-    title: "Backend Architecture Review",
-    description: "Discuss API design patterns and database optimization",
-    date: "Feb 8, 2026",
-    time: "3:00 PM",
-    duration: "1h",
-    attendees: ["JK", "RD", "TW"],
-  },
-];
+export function MeetingsView({
+  projectId,
+  refreshKey = 0,
+  onMeetingScheduled,
+}: MeetingsViewProps) {
+  const supabase = useMemo(() => createClient(), []);
+  const [meetings, setMeetings] = useState<MeetingWithAttendees[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
 
-export function MeetingsView() {
+  useEffect(() => {
+    let active = true;
+    async function loadMeetings() {
+      setLoading(true);
+      setError(null);
+      try {
+        const data = await getMeetingsByProject(supabase, projectId);
+        if (active) setMeetings(data);
+      } catch (err) {
+        if (active) setError(getErrorMessage(err, "Failed to load meetings"));
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadMeetings();
+    return () => {
+      active = false;
+    };
+  }, [projectId, refreshKey, supabase]);
+
+  function handleMeetingScheduled() {
+    onMeetingScheduled?.();
+  }
+
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-lg font-semibold">Project Meetings</h3>
-        <Button>
+        <Button onClick={() => setScheduleOpen(true)}>
           <Plus className="mr-2 h-4 w-4" />
           Schedule Meeting
         </Button>
@@ -69,49 +66,73 @@ export function MeetingsView() {
 
       {/* Meeting List */}
       <div className="space-y-0 rounded-lg border">
-        {meetings.map((meeting, i) => (
-          <div key={meeting.id}>
-            <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4">
-              {/* Time */}
-              <div className="w-20 text-center">
-                <p className="text-sm font-medium">{meeting.time}</p>
-                <div className="flex items-center justify-center gap-1">
-                  <Clock className="h-3 w-3 text-muted-foreground" />
-                  <Badge variant="secondary" className="text-[10px]">
-                    {meeting.duration}
-                  </Badge>
-                </div>
-              </div>
-
-              {/* Details */}
-              <div className="flex-1">
-                <p className="text-sm font-medium">{meeting.title}</p>
-                <p className="text-xs text-muted-foreground">
-                  {meeting.description}
-                </p>
-              </div>
-
-              {/* Attendees */}
-              <div className="flex items-center gap-2">
-                <div className="flex -space-x-2">
-                  {meeting.attendees.map((a) => (
-                    <Avatar
-                      key={a}
-                      className="h-6 w-6 border-2 border-background"
-                    >
-                      <AvatarFallback className="text-[10px]">{a}</AvatarFallback>
-                    </Avatar>
-                  ))}
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {meeting.date}
-                </span>
-              </div>
-            </div>
-            {i < meetings.length - 1 && <Separator />}
+        {loading ? (
+          <div className="p-4 text-sm text-muted-foreground">Loading meetings...</div>
+        ) : error ? (
+          <div className="p-4 text-sm text-destructive">{error}</div>
+        ) : meetings.length === 0 ? (
+          <div className="p-4 text-sm text-muted-foreground">
+            No meetings scheduled.
           </div>
-        ))}
+        ) : (
+          meetings.map((meeting, i) => (
+            <div key={meeting.id}>
+              <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-4">
+                {/* Time */}
+                <div className="w-20 text-center">
+                  <p className="text-sm font-medium">{formatTime(meeting.time)}</p>
+                  <div className="flex items-center justify-center gap-1">
+                    <Clock className="h-3 w-3 text-muted-foreground" />
+                    <Badge variant="secondary" className="text-[10px]">
+                      {meeting.duration}
+                    </Badge>
+                  </div>
+                </div>
+
+                {/* Details */}
+                <div className="flex-1">
+                  <p className="text-sm font-medium">{meeting.title}</p>
+                  {meeting.description && (
+                    <p className="text-xs text-muted-foreground">
+                      {meeting.description}
+                    </p>
+                  )}
+                </div>
+
+                {/* Attendees */}
+                <div className="flex items-center gap-2">
+                  <div className="flex -space-x-2">
+                    {meeting.attendees.slice(0, 4).map((attendee) => (
+                      <Avatar
+                        key={attendee.id}
+                        className="h-6 w-6 border-2 border-background"
+                      >
+                        {attendee.avatar_url && (
+                          <AvatarImage src={attendee.avatar_url} />
+                        )}
+                        <AvatarFallback className="text-[10px]">
+                          {getInitials(attendee.full_name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ))}
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {formatDate(meeting.date)}
+                  </span>
+                </div>
+              </div>
+              {i < meetings.length - 1 && <Separator />}
+            </div>
+          ))
+        )}
       </div>
+
+      <ScheduleMeetingModal
+        open={scheduleOpen}
+        onClose={() => setScheduleOpen(false)}
+        onSuccess={handleMeetingScheduled}
+        projectId={projectId}
+      />
     </div>
   );
 }
